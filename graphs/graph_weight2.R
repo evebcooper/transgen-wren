@@ -3,14 +3,19 @@ library(modelr)
 library(ggplot2)
 library(ggeffects)
 library(dplyr)
-library(bootpredictlme4)
+library(merTools)
+library(gpuR)
+
+offspring <- read.csv("C:/Users/u6354548/OneDrive - Australian National University/transgen-wren/study_born.csv")
 
 #put 9 and 10 year olds at 8 
 offspring<-offspring %>%
-  mutate(BageC=ifelse(Bage==10,9,Bage))
+  mutate(BageC=ifelse(Bage>8,8,Bage)) %>%
+  mutate(SageC=ifelse(Sage>8,8,Sage)) %>%
+  mutate(MageC=ifelse(Mage>8,8,Mage))
 
 #base model
-weight<-lmer(weight~Mage+BageC:EPb+BageC:WPb+Sage:EPb+lifespanB:EPb+lifespanS:EPb+lifespanB:WPb+
+weight<-lmer(weight~Mage+Bage:EPb+Bage:WPb+Sage:EPb+lifespanB:EPb+lifespanS:EPb+lifespanB:WPb+
                lifespanM+EPb+Jincube+weight.age+pre1992+
                (1|cohort)+(1|mum)+(1|dad_bio)+(1|dad_soc),
              data=offspring)
@@ -19,15 +24,16 @@ summary(weight)
 
 #dataframe
 weightDat<-offspring %>%
-  select(Mage,BageC,Bage,Sage,lifespanB,lifespanS,lifespanB,lifespanM,Jincube,weight.age,pre1992,weight,EPb,
+  dplyr::select(Mage,MageC,BageC,Bage,Sage,SageC,lifespanB,
+         lifespanS,lifespanB,lifespanM,Jincube,weight.age,pre1992,weight,EPb,
          cohort, mum, dad_bio,dad_soc,WPb)
 weightDat<-na.omit(weightDat)
+
 
 ###################
 #WP father 
 #re-run model without the effect of WP dad age
-#BageC rounded
-weightG<-lmer(weight~Mage+BageC:EPb+Sage:EPb+lifespanB:EPb+lifespanS:EPb+lifespanB:WPb+
+weightG<-lmer(weight~Mage+Bage:EPb+Sage:EPb+lifespanB:EPb+lifespanS:EPb+lifespanB:WPb+
                 lifespanM+EPb+Jincube+weight.age+pre1992+
                 (1|cohort)+(1|mum)+(1|dad_bio)+(1|dad_soc),
               data=offspring)
@@ -35,20 +41,42 @@ summary(weightG)
 #calc residuals and add to raw data
 weightDat<-weightDat %>%
   mutate(resid=resid(weightG)) %>%
-  mutate(weightCor=weight-resid)
-#summarise age raw data to 9 rows
+  mutate(weightCor=weight+resid)
+#summarise age raw data to 8 rows
 weightDat1 <- weightDat%>%
   filter(EPb==0)%>%
   group_by(BageC)%>%
-  summarise(num=n(),weight=mean(weightCor))
+  summarise(num=n(),weight=mean(weight))
 
 ggplot(data=weightDat1,aes(x=BageC,y=weight))+
-  geom_point()
+  geom_point()+
+  coord_cartesian(ylim=c(6.75,7.15))
 
 #get predictions and CI
-newdat<-new_data(weightG,terms=c("BageC","cohort[sample=20]","dad_bio [sample=50]","dad_soc [sample=50]","mum [sample=50]"),condition=c(EPb=0,WPb=1))
+newdat<-as.matrix(new_data(weight,terms=c("Bage","cohort[sample=1]",
+    "dad_bio [sample=1]","dad_soc [sample=1]","mum [sample=1]"),condition=c(EPb=0,WPb=1)))
+
+newdat1<-as.matrix((expand.grid(Bage=c(1:10),cohort=sample(unique(weightDat$cohort),10),
+    dad_bio=sample(unique(weightDat$dad_bio),10),
+    dad_soc=sample(unique(weightDat$dad_soc),10),
+    mum=sample(unique(weightDat$mum),10),EPb=0,WPb=1,Mage=mean(weightDat$Mage)
+    ,Sage=mean(weightDat$Sage),lifespanB=mean(weightDat$lifespanB),
+    lifespanS=mean(weightDat$lifespanS),lifespanM=mean(weightDat$lifespanM),
+    Jincube=mean(weightDat$Jincube),weight.age=mean(weightDat$weight.age),
+    pre1992="no")))
+newdat1a<- as.matrix(newdat)
+newdat1b<-gpuMatrix(newdat)
+##################################
+#GPUr
+# verify you have valid GPUs
+detectGPUs()
+# create gpuMatrix and multiply
+newdat2 <- vclMatrix(newdat1)
 
 predictions<-predict(weightG,newdata=newdat,type="response",se.fit=TRUE,options(nbootsim=5),allow.new.levels=TRUE)
+
+##########
+#non-GPU attempts
 #this took overnight to run
 #got error: cannot allocate vector of size 5.4 gb (when boots was 500)
 #decreasing the RE samples increases the CI alot and also makes for a highly inaccurate line estimate
