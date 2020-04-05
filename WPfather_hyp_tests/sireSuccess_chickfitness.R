@@ -20,7 +20,7 @@ nests<- nestRAW %>%
   rename(nestID=Nest.ID.mother,cohort=Season.of.nest,mumID=Mother.ID,Mage=Age.of.mother, domID=Dominant.ID,
          Dage=Dominant.Age,eggs=No.of.eggs,hatched=No.hatched,fledge=No.fledged,fledgeB=Fledged.Yes.or.No,
          inde=No.of.young.independent..4.weeks.,legit=No.legitimate,EP=No.extra.pair,helpers=No.of.helpers,territory=Territory.ID)%>%
-  mutate(prop.legit=legit/hatched)%>% #this is a conservative estimate since not all that hatch neccessarily fledge
+  mutate(prop.legit=legit/(EP+legit))%>% 
   mutate(EPprob=ifelse(EP>0,1,0))%>%
   mutate(WPprob=ifelse(legit>0,1,0))%>%
   mutate(hatch.inde=inde/hatched)%>% #this is the prop. of the clutch reaching inde
@@ -37,12 +37,10 @@ nests$Dage<-as.numeric(nests$Dage)
 nests$Mage<-as.numeric(nests$Mage)
 
 
-#calculate offspring relative WP and EP offspring weights
-offspring<-offspring %>%
-  rename(nestID = Nest.ID.mother)
 
 offspring.W<-offspring %>%
   filter(!is.na(nestID))%>%
+  filter(!is.na(weight))%>%
   group_by(nestID)%>%
   summarise(chicks=n(),EP=sum(EP=="yes")) %>%
   mutate(WP=chicks-EP)
@@ -57,15 +55,14 @@ offspring1<-offspring %>%
 offspring.weight<-offspring1 %>%
   filter(!is.na(nestID))%>%
   group_by(nestID)%>%
-  summarise(weightSUM=sum(weight),No.hatched=mean(No.hatched),pre1992=mean(pre1992B),
-            weight.age=mean(weight.age),help.cat=as.factor(mean(help.catN)))%>%
-  mutate(weightM=weightSUM/No.hatched)
+  summarise(weightSUM=sum(weight,na.rm=TRUE),No.hatched=mean(No.hatched),pre1992=mean(pre1992B),
+            weight.age=mean(weight.age,na.rm=TRUE),help.cat=as.factor(mean(help.catN)))
 #I removed help.cat=mean(help.catN) from above because wasn't working
 
 #connect weight stats to each nest
 
 nests<-nests%>%
-  left_join(select(offspring.weight,nestID,pre1992,weightM,weight.age,No.hatched,help.cat),by="nestID")
+  left_join(select(offspring.weight,nestID,pre1992,weight.age,No.hatched,help.cat),by="nestID")
 
 nests<-nests %>%
   filter(Dage<13) %>%
@@ -83,20 +80,25 @@ nests<-nests%>%
 nestSuccess <- offspring %>%
   group_by(nestID) %>%
   summarise(EPsurvTot=sum(ifelse(EPb==1,independent,0)),WPsurvTot=sum(ifelse(EPb==0,independent,0)),
-            EPweightTot=sum(ifelse(EPb==1,weight,NA)),WPweightTot=sum(ifelse(EPb==0,weight,NA))) #sum weight, we'll get mean later
+            EPweightTot=sum(ifelse(EPb==1,weight,0)),WPweightTot=sum(ifelse(EPb==0,weight,0))) #sum weight, we'll get mean later
+           
 
 #left_join nest success to nests
 #nestSuccess has more nests because social incest hasn't been removed
 nests<-left_join(nests,nestSuccess)
 #NAs produced in cases where no chicks made it to banding age
+#number banded
+nests<-nests%>%
+  mutate(banded=EP+legit)
 
 #remove weights that are 0 (these are cases where no chicks made it to weighing)
 nests<-nests %>%
   mutate(EPweightTot=ifelse(EPweightTot>0,EPweightTot,NA))%>%
   mutate(WPweightTot=ifelse(WPweightTot>0,WPweightTot,NA))%>%
 #get mean weights
-  mutate(EPweightM=EPweightTot/hatched)%>%
-  mutate(WPweightM=WPweightTot/hatched)%>%
+  mutate(EPweightM=EPweightTot/(EP))%>%
+  mutate(WPweightM=WPweightTot/legit)%>%
+  mutate(weightM=(EPweightTot+WPweightTot)/banded)%>%
   #remove rows where both legit and EP are 0 (no chicks banded/faulty data)
   filter(legit>0 | EP>0)%>%
   #get binary of if any EP or WP survived
@@ -115,20 +117,60 @@ summary(weight)
 #weirdly, Mage has a significant effect here despite that neither Mage or lifespanM have an effect in other model
 
 #mean weight of the WP chicks
-weightWP<-lmer(WPweightM~prop.legit+hatched+weight.age+pre1992+Jincube+
-                 (1|cohort)+(1|mumID)+(1|domID),data=nests)
+weightWP<-lmer(WPweightM~legit+weight.age+pre1992+Jincube+
+                 (1|cohort)+(1|mumID),data=subset(nests,legit>1))
 summary(weightWP)
 #significant positive effect of siring success on WP chick weight
 #this stands whether you control for absolute number of legit or number hatched 
 
 #mean weight of the EP chicks
-weightEP<-lmer(EPweightM~prop.legit+hatched+weight.age+pre1992+Jincube+
-                 (1|cohort)+(1|mumID)+(1|domID),data=nests)
+nests<-nests%>%
+  mutate(banded=EP+legit)
+
+weightEP<-lmer(EPweightM~prop.legit+(1|cohort),data=subset(nests,banded=3))
 summary(weightEP)
 #no effect on EP chicks
 
 #males with higher siring success have heavier offspring, but it does not effect weight of EP chicks
 #this suggests a genetic, rather than environmental effect
+
+#remove WP/EP weights when they dont make sense
+nests<-nests %>%
+  mutate(WPweightM=ifelse(prop.legit==0,NA,WPweightM)) %>%
+  mutate(EPweightM=ifelse(prop.legit==1,NA,EPweightM))
+
+ggplot(data=nests,aes(y=weightM,x=as.factor(prop.legit)))+
+  geom_boxplot(colour="blue",fill=NA)+
+  #stat_boxplot(aes(x=as.factor(prop.legit), y=EPweightM),colour="red",fill=NA)+
+  theme_minimal()
+
+ggplot(data=nests,aes(y=EPweightM,x=as.factor(prop.legit)))+
+  geom_boxplot(colour="red",fill=NA)+
+  theme_minimal()
+
+weightSum<-nests%>%
+  group_by(prop.legit)%>%
+  summarise(n=n(),weightM=mean(weightM,na.rm=TRUE),EPweightM=mean(EPweightM,na.rm=TRUE),WPweightM=mean(WPweightM,na.rm=TRUE))
+
+
+###########################
+#survival
+
+weightSum<-nests%>%
+  group_by(prop.legit,banded)%>%
+  summarise(n=n(),EPsurvTot=mean(EPsurvTot/(EP),na.rm=TRUE),WPsurvTot=mean(WPsurvTot/legit,na.rm=TRUE))
+
+nests<-nests%>%
+  mutate(EPsurvProp=EPsurvTot/(EP))%>%
+  mutate(WPsurvProp=WPsurvTot/(legit)) %>%
+  mutate(EPsurvProp=ifelse(EPsurvProp==Inf,NA,EPsurvProp))%>%
+  mutate(WPsurvProp=ifelse(WPsurvProp==Inf,NA,WPsurvProp))
+  
+survWP<-lmer(WPsurvProp~prop.legit+(1|cohort)+(1|mumID),data=subset(nests,banded=3))
+summary(survWP)
+
+survEP<-lmer(EPsurvProp~prop.legit+(1|cohort)+(1|mumID),data=subset(nests,banded=3))
+summary(survEP)
 
 ############################
 #Does the proportion of WP chicks increase with the dominant's age?
@@ -137,7 +179,7 @@ library(glmmTMB)
 mean(nests$legit,na.rm=TRUE)
 var(nests$legit,na.rm=TRUE)
 
-prop.age<-glmer(legit~Dage+weight.age+pre1992+Jincube+hatched+help.cat+
+prop.age<-glmer(legit~Dage+weight.age+pre1992+Jincube+banded+help.cat+
                (1|cohort)+(1|mumID)+(1|domID),data=nests,family="poisson")
 summary(prop.age)
 #negative effect 

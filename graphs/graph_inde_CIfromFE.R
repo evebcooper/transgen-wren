@@ -37,6 +37,17 @@ summary(survFE)
 #ES 0.050 and p=0.12 (se = 0.032)
 #EPB es = -0.039. se =0.029
 
+#inde with only random effect of nest ID
+survWP<-glmer(independent~Mage+Bage:EPb+Sage:EPb+Bage:WPb+lifespanB:EPb+lifespanS:EPb+lifespanB:WPb+lifespanM+
+              EPb+Jincube+weight.res+(1|Nest.ID.mother),data=offspring, family="binomial",control=glmerControl(optimizer ="bobyqa"))
+summary(survWP)
+#no signficant effect of WP father
+
+#inde with only random effect of nest ID and bio dad
+survWP1<-glmer(independent~Mage+Bage:EPb+Sage:EPb+Bage:WPb+lifespanB:EPb+lifespanS:EPb+lifespanB:WPb+lifespanM+
+                EPb+Jincube+weight.res+(1|mum/Nest.ID.mother)+(1|dad_bio),data=offspring, family="binomial",control=glmerControl(optimizer ="bobyqa"))
+summary(survWP1)
+
 #dataframe
 indeDat<-offspring %>%
   select(Mage,MageC,Bage,Sage,BageC,SageC, lifespanB,lifespanS,lifespanB,lifespanM,Jincube,weight.res,EPb,

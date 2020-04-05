@@ -6,6 +6,7 @@ library(dplyr)
 library(merTools)
 library(gpuR)
 
+
 offspring <- read.csv("C:/Users/u6354548/OneDrive - Australian National University/transgen-wren/study_born.csv")
 
 #put 9 and 10 year olds at 8 
@@ -53,8 +54,11 @@ ggplot(data=weightDat1,aes(x=BageC,y=weight))+
   coord_cartesian(ylim=c(6.75,7.15))
 
 #get predictions and CI
-newdat<-as.matrix(new_data(weight,terms=c("Bage","cohort[sample=1]",
-    "dad_bio [sample=1]","dad_soc [sample=1]","mum [sample=1]"),condition=c(EPb=0,WPb=1)))
+newdat<-(new_data(weight,terms=c("Bage","cohort[sample=15]",
+    "dad_bio [sample=50]","dad_soc [sample=50]","mum [sample=50]"),condition=c(EPb=0,WPb=1)))
+
+newdat<-(new_data(weight,terms=c("Bage"),condition=c(EPb=0,WPb=1)))
+
 
 newdat1<-as.matrix((expand.grid(Bage=c(1:10),cohort=sample(unique(weightDat$cohort),10),
     dad_bio=sample(unique(weightDat$dad_bio),10),
@@ -73,7 +77,10 @@ detectGPUs()
 # create gpuMatrix and multiply
 newdat2 <- vclMatrix(newdat1)
 
-predictions<-predict(weightG,newdata=newdat,type="response",se.fit=TRUE,options(nbootsim=5),allow.new.levels=TRUE)
+predictions<-predict(weight,newdata=newdat,type="response",se.fit=TRUE,re.form=NA,allow.new.levels=TRUE,options(nbootsim=5))
+
+predictions<-predictInterval(weight,newdata=newdat,which="fixed",n.sims=100)
+
 
 ##########
 #non-GPU attempts

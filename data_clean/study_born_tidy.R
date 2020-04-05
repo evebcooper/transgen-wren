@@ -1,5 +1,5 @@
 library(tidyr)
-
+library(dplyr)
 
 all_birds <- read.csv("C:/Users/u6354548/OneDrive - Australian National University/transgen-wren/all_birds.csv")
 
@@ -10,7 +10,7 @@ study_born <- all_birds %>%
 
 #clean up and reduce columns
 study_born<-study_born%>%
-  select(ID,cohort,caught,disappeared,fate,outside_area,fledged,independent,mum,Mage,
+  dplyr::select(ID,cohort,caught,disappeared,fate,outside_area,fledged,independent,mum,Mage,
          dad_soc,Sage,dad_bio,Bage,sex,LRStot,LRSfledge,LRSinde)
 
 ####add in lifespans of offspring
@@ -48,7 +48,6 @@ parent_longS <-parent_long %>%
 
 
 study_born<-left_join(study_born,parent_longM,by="mum")
-
 study_born<-left_join(study_born,parent_longB,by="dad_bio")
 study_born<-left_join(study_born,parent_longS,by="dad_soc")
 
@@ -121,10 +120,12 @@ babies<-babies%>%
   rename(incest = Social.incest..pair.is.mother.son.)
 babies<-babies%>%
   mutate(help.cat=ifelse(No.of.helpers==0,"none",
-                         ifelse(No.of.helpers==1,"one","twoPlus")))
+                         ifelse(No.of.helpers==1,"one","twoPlus")))%>%
+  mutate(helpB=ifelse(No.of.helpers>0,1,0))%>%
+  rename(helpNum=No.of.helpers)
 
 #add nest ID, incube date, helper and social incest info, as well as helper names
-study_born<-left_join(study_born,select(babies,c("ID","Nest.ID.mother","Jincube","help.cat","incest","No.hatched",
+study_born<-left_join(study_born,select(babies,c("ID","Nest.ID.mother","Jincube","help.cat","helpNum","helpB","incest","No.hatched",
                                                  "Helper.1","Helper.2","Helper.3","Helper.4","Helper.5")))
 #indicate if Bage is a helper and offspring is EP (thus EG not EP)
 study_born<-study_born %>%
@@ -140,6 +141,149 @@ study_born<-study_born %>%
 study_born <- study_born %>%
   select(-Helper.1,-Helper.2,-Helper.3,-Helper.4,-Helper.5)  
 
+
+##########################
+#adding helper age information
+library(readr)
+#estimate helper ages
+babiesES<-babies %>%
+  mutate(Age.helper.1=parse_number(as.character(Age.helper.1)))%>%
+  mutate(Age.helper.2=parse_number(as.character(Age.helper.2)))%>%
+  mutate(Age.helper.3=parse_number(as.character(Age.helper.3)))%>%
+  mutate(Age.helper.4=parse_number(as.character(Age.helper.4)))%>%
+  mutate(Age.helper.5=parse_number(as.character(Age.helper.5)))
+
+#make numeric
+babiesES$Age.helper.1<-as.numeric(babiesES$Age.helper.1)
+babiesES$Age.helper.2<-as.integer(babiesES$Age.helper.2)
+babiesES$Age.helper.3<-as.integer(babiesES$Age.helper.3)
+babiesES$Age.helper.4<-as.integer(babiesES$Age.helper.4)
+babiesES$Age.helper.5<-as.integer(babiesES$Age.helper.5)
+
+#remove crazy estimates
+babiesES<-babiesES%>%
+  mutate(Age.helper.1=ifelse(Age.helper.1==-7,NA,Age.helper.1))%>%
+  mutate(Age.helper.1=ifelse(Age.helper.1==-8,NA,Age.helper.1))%>%
+  mutate(Age.helper.1=ifelse(Age.helper.1==12,NA,Age.helper.1))%>%
+  mutate(Age.helper.2=ifelse(Age.helper.2==-19,NA,Age.helper.2))%>%
+  mutate(Age.helper.2=ifelse(Age.helper.2==0,NA,Age.helper.2))%>%
+  mutate(Age.helper.3=ifelse(Age.helper.3==-11,NA,Age.helper.3))
+  
+#rename
+babiesES<-babiesES %>%
+  rename(help1age=Age.helper.1,help2age=Age.helper.2,help3age=Age.helper.3,help4age=Age.helper.4,help5age=Age.helper.5)
+
+#recode helper being a son into numeric
+babiesES<-babiesES %>%
+  mutate(help1Mom=ifelse(Helper.1...with.mum=="Mum",1,NA))%>%
+  mutate(help2Mom=ifelse(Helper.2...with.mum=="Mum",1,NA))%>%
+  mutate(help3Mom=ifelse(Helper.3...with.mum=="Mum",1,NA))%>%
+  mutate(help4Mom=ifelse(Helper.4...with.mum=="Mum",1,NA))%>%
+  mutate(help5Mom=ifelse(Helper.5...with.mum=="Mum",1,NA))
+
+#create a unique row for each helper and only keep helpers that are sons
+helperSons <- babiesES %>%
+  gather(helperKey,helpID, Helper.1:Helper.5,na.rm=TRUE) %>%
+  select(ID,helperKey,helpID,help1Mom:help5Mom,help1age:help5age)%>%
+  mutate(helpID=na_if(helpID,""))
+helperSon1<-filter(helperSons,!is.na(help1Mom))
+helperSon2<-filter(helperSons,!is.na(help2Mom))
+helperSon3<-filter(helperSons,!is.na(help3Mom))
+helperSon4<-filter(helperSons,!is.na(help4Mom))
+helperSon5<-filter(helperSons,!is.na(help5Mom))
+
+helperSon1<-helperSon1 %>%filter(helperKey=="Helper.1")%>%select(ID,help1age)
+helperSon2<-helperSon2 %>%filter(helperKey=="Helper.2")%>%select(ID,help2age)
+helperSon3<-helperSon3 %>%filter(helperKey=="Helper.3")%>%select(ID,help3age)
+helperSon4<-helperSon4 %>%filter(helperKey=="Helper.4")%>%select(ID,help4age)
+helperSon5<-helperSon5 %>%filter(helperKey=="Helper.5")%>%select(ID,help5age)
+
+helperSon<-left_join(helperSon1,helperSon2)
+helperSon<-left_join(helperSon,helperSon3)
+helperSon<-left_join(helperSon,helperSon4)
+helperSon<-left_join(helperSon,helperSon5)
+
+#find mean age of help sons for each ID
+helpSonSum<-helperSon %>%
+  group_by(ID)%>%
+  summarise(helpSonMean=mean(c(help1age,help2age,help3age,help4age,help5age),na.rm=TRUE),
+    helpSonMin=min(c(help1age,help2age,help3age,help4age,help5age),na.rm=TRUE),
+    helpSonMax=max(c(help1age,help2age,help3age,help4age,help5age),na.rm=TRUE))
+
+#left join study_born to mean son helper age by ID
+study_born<-left_join(study_born,helpSonSum)  
+
+
+#summarize by baby ID and find mean max and sum ages of helpers
+helpAgeSum<-babiesES %>%
+  group_by(ID) %>%
+  summarise(helpMeanAge=mean(c(help1age,help2age,help3age,help4age,help5age),na.rm=TRUE),
+        helpMaxAge=max(c(help1age,help2age,help3age,help4age,help5age),na.rm=TRUE),
+        helpMinAge=min(c(help1age,help2age,help3age,help4age,help5age),na.rm=TRUE),
+        helpSonNum=sum(c(help1Mom,help2Mom,help3Mom,help4Mom,help5Mom),na.rm=TRUE))
+       
+
+#leftjoin helper age info to study_born
+study_born<-left_join(study_born,helpAgeSum,by=c("ID"="ID"))
+
+table(study_born$helpMinAge)
+
+#fix error where individuals with no helpers are falsely coded as having 3 1 year old helpers
+study_born <-study_born %>%
+  mutate(helpMeanAge=ifelse(helpB==1,helpMeanAge,0))%>%
+  mutate(helpMaxAge=ifelse(helpB==1,helpMaxAge,0))%>%
+  mutate(helpMinAge=ifelse(helpB==1,helpMinAge,0))
+
+#if helpB = 1, replace helpMaxAge=-inf with NA and helpMinAge =inf with NA
+study_born<-study_born %>%
+  mutate(helpMaxAge=ifelse(helpB==1 & helpMaxAge==-Inf,NA,helpMaxAge)) %>%
+  mutate(helpMinAge=ifelse(helpB==1 & helpMinAge==Inf,NA,helpMinAge))
+  
+  
+####################
+#helper lifespans
+#everyone's lifespan is in parent_long
+
+
+#need to create a unique row for each helper
+helpers <- babiesES %>%
+  gather(helperKey,helpID, Helper.1:Helper.5,na.rm=TRUE) %>%
+  select(ID,helperKey,helpID)%>%
+  mutate(helpID=na_if(helpID,""))
+helpers<-na.omit(helpers)
+
+#leftjoin lifespan to helpers by helpID = ID  to the helpers file
+helpers<-left_join(helpers,select(parent_long,ID,lifespan),by=c("helpID" ="ID"))
+
+#for each baby (ID) in helpers, calculate the mean, max and sum lifespans
+helpers_longSum <- helpers %>%
+  group_by(ID)%>%
+  summarise(longMean=mean(lifespan,na.rm=TRUE),
+      longMax=max(lifespan,na.rm=TRUE))
+
+
+#change NaNs/-inf/0 to 0
+helpers_longSum<- helpers_longSum %>%
+  mutate(longMean=recode(longMean,"NaN"=0))%>%
+  mutate(longMax=recode(longMax,"-Inf"=0))
+
+
+
+#left_join helpers_longsum to studyborn
+study_born<-left_join(study_born,helpers_longSum,by=c("ID"="ID"))
+
+
+#if helpB = 0, make all helper stats =0 (so these individuals aren't removed from analysis)
+study_born <-study_born %>%
+  mutate(longMean=ifelse(helpB==1,longMean,0))%>%
+  mutate(longMax=ifelse(helpB==1,longMax,0))
+
+#if helpB = 1, replace longMax=0 with NA
+study_born<-study_born %>%
+  mutate(longMax=ifelse(helpB==1 & longMax==0,NA,longMax))
+
+
+######################
 #add individual chick weights
 Pulli_weights <- read.csv("C:/Users/u6354548/OneDrive - Australian National University/transgen-wren/Pulli_weights.txt", header=FALSE)
 Pulli_weights<-rename(Pulli_weights,ID=V1,weight=V20,weight.age=V10)
@@ -190,19 +334,16 @@ weight.res<-lm(weight~weight.age+pre1992,
                data=study_born)
 residW<-resid(weight.res)
 
-study_bornFULL<-study_born %>%
-  filter(!is.na(weight))%>%
-  filter(!is.na(weight.age))
 
-study_bornFULL<-mutate(study_bornFULL, weight.res=residW)
-
-study_born<-left_join(study_born,select(study_bornFULL,ID,weight.res),by="ID")
-
-#remove duplicate chicks
+#categorical helpers relate and unrelate
 study_born<-study_born %>%
-  distinct(ID,.keep_all=TRUE)
+  mutate(helpSonCat=ifelse(helpSonNum==0,"none",
+                         ifelse(helpSonNum==1,"one","twoPlus")))%>%
+  mutate(helpUnrelateCat=ifelse(helpUnrelateNum==0,"none",
+                           ifelse(helpUnrelateNum==1,"one","twoPlus")))
 
 write.csv(study_born,file="study_born.csv")
+
 
 
 

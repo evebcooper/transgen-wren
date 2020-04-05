@@ -32,7 +32,7 @@ table(male.recruitInde$recruit)
 #no help
 recruit<-glmer(recruit~Mage+Bage:EPb+Sage:EPb+Bage:WPb+lifespanB:EPb+lifespanS:EPb+lifespanB:WPb+lifespanM+
                  EPb+Jincube+
-                 (1|cohort)+(1|mum/dad_soc)+(1|dad_bio),
+                 (1|cohort)+(1|mum)+(1|dad_soc)+(1|dad_bio),
                data=male.recruit, family="binomial",control=glmerControl(optimizer ="bobyqa"))
 summary(recruit)
 #maternal lifespan positively effects recruitment probability (p<0.01)
